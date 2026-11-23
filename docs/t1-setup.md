@@ -12,11 +12,11 @@ Telegram Trigger (message + button press)
 ```
 Every answer ends with *[DRAFT answer, not yet approved]* until its row in `faqs.csv` says APPROVED.
 
-## Import (about 5 minutes)
-1. In n8n, open the Slice 0 echo workflow and switch it **off** (a bot has one webhook; two active workflows fight over it).
-2. New workflow → ⋯ → **Import from File** → `workflows/t1-start-and-buttons.json`.
-3. Open **Telegram Trigger**, **Answer button**, **Send with menu** and **Send plain** one by one and pick your existing Telegram credential in each.
-4. Save, then switch the workflow **Active**.
+## In n8n (done by Claude through the n8n MCP, 23 Nov)
+- Workflow **KK bot T1 - Start + buttons (DRAFT answers)**, id `pcJZgD9Phn5ipV0T`, published (live). Uses the existing "Telegram account" login.
+- Source: `workflows/t1-start-and-buttons.sdk.ts` (what was sent to n8n) and `workflows/t1-start-and-buttons.json` (same flow as an import file, as a backup).
+- Slice 0 echo is off. Only one workflow can listen to the bot at a time.
+- No manual import needed any more: Claude updates the workflow in n8n and commits the same code here.
 
 ## Test in Telegram (tick each)
 - [ ] `/start` → opening message with your first name, bold name and tagline, italic disclaimer, 6 buttons
