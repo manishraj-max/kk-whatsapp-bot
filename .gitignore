@@ -1,0 +1,9 @@
+# Secrets: tokens live in n8n credentials or a local .env, never here
+.env
+*.env
+credentials*.json
+# Client data: lead lists, phone numbers and chat logs never go in Git
+data/
+exports/
+*.csv
+!knowledge/*.csv

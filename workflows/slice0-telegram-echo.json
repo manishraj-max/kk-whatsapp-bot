@@ -1,0 +1,27 @@
+{
+  "name": "Slice 0 - Telegram echo",
+  "nodes": [
+    {
+      "parameters": { "updates": ["message"], "additionalFields": {} },
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.message.chat.id }}",
+        "text": "={{ $json.message.text ? 'You said: ' + $json.message.text : 'I can only read text for now. Please type your message.' }}",
+        "additionalFields": { "appendAttribution": false }
+      },
+      "name": "Echo reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [280, 0]
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": { "main": [[{ "node": "Echo reply", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}
