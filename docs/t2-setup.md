@@ -36,15 +36,15 @@ Telegram Trigger
 ## Approving an answer
 In `kk_faqs`, change `status` from `DRAFT` to `APPROVED`. The DRAFT tag disappears from that reply on the next message.
 
-## Test in Telegram (tick each)
-- [ ] "kitna fees" → Plans & fees answer
-- [ ] "Should I buy Tata Motors?" → polite refusal
-- [ ] "is profit guaranteed?" → "No. No one can guarantee returns…"
-- [ ] "my stop loss keeps hitting" → **not** an opt-out (you get the hand-off reply + an alert)
-- [ ] "do you have an office in Pune?" → hand-off reply, and you get a 🔔 alert
-- [ ] Tap Talk to a person → 🔔 alert
-- [ ] Type STOP → confirmation; then type "hello" → **no reply**
-- [ ] Send `/start` → opening message again (you're back in)
+## Test in Telegram (all ✅ 23 Nov, checked in the n8n runs)
+- [x] "kitna fees" → Plans & fees answer
+- [x] "Should I buy Tata Motors?" → polite refusal
+- [x] "is profit guaranteed?" → "No. No one can guarantee returns…"
+- [x] "my stop loss keeps hitting" → **not** an opt-out (you get the hand-off reply + an alert)
+- [x] "do you have an office in Pune?" → hand-off reply, and you get a 🔔 alert
+- [x] Tap Talk to a person → 🔔 alert
+- [x] Type STOP → confirmation; then type "hello" → **no reply**
+- [x] Send `/start` → opening message again (you're back in)
 
 ## Local test
 `node scripts/test_t2_route.js` runs 25 cases against `workflows/t2-route.js` with the answers from `knowledge/faqs.csv`.
