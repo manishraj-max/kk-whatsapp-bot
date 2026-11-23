@@ -1,0 +1,393 @@
+[
+ {
+  "type": "updateNodeParameters",
+  "nodeName": "Build page",
+  "parameters": {
+   "jsCode": "// Dashboard v2 (n8n Code node \"Build page\", mode: run once for all items).\n// Reads the 4 bot tables, packs them into the page as JSON, and ships a small browser script\n// that draws the control room and sends button actions (confirm / cancel / done / reply / handled)\n// to the \"-act\" webhook of the same workflow. This node itself only reads.\n\nconst rows = n => $(n).all().map(i => i.json).filter(r => r && r.id !== undefined);\nconst yes = v => v === true || v === 'true';\nconst NOW = (typeof $now !== 'undefined' && $now.toMillis) ? $now.toMillis() : Date.now();\n\nconst data = {\n  now: NOW,\n  log: rows('Read chat log').map(r => ({ id: r.id, chat: String(r.chat_id), name: r.name || 'Someone', said: r.said || '', matched: r.matched || '', replied: !(r.replied === false || r.replied === 'false'), handled: yes(r.handled), reply: r.team_reply || '', at: r.createdAt })),\n  bookings: rows('Read bookings').map(r => ({ id: r.id, chat: String(r.chat_id), name: r.name || 'Someone', slot: r.slot_label || '', status: r.status || 'requested', at: r.createdAt })),\n  optedOut: rows('Read contacts').filter(r => yes(r.opted_out)).length,\n  faqs: rows('Read answers').map(r => ({ id: r.faq_id, label: r.button_label || r.faq_id, status: r.status || 'DRAFT', priority: Number(r.priority) || 99 })),\n};\n\n// ---------- runs in the browser ----------\nfunction client() {\n  const D = JSON.parse(document.getElementById('data').textContent);\n  const $ = s => document.querySelector(s);\n  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;');\n  const IST = 330 * 60000, DAY = 86400000;\n  const ms = t => new Date(t || 0).getTime();\n  const M = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];\n  const W = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];\n  const clock = t => { const d = new Date(ms(t) + IST), h = d.getUTCHours(); return ((h % 12) || 12) + ':' + String(d.getUTCMinutes()).padStart(2, '0') + (h < 12 ? ' am' : ' pm'); };\n  const ago = t => {\n    const s = (D.now - ms(t)) / 1000;\n    if (s < 60) return 'just now'; if (s < 3600) return Math.floor(s / 60) + ' min ago';\n    if (s < DAY / 1000) return Math.floor(s / 3600) + ' h ago';\n    const d = new Date(ms(t) + IST); return d.getUTCDate() + ' ' + M[d.getUTCMonth()] + ', ' + clock(t);\n  };\n  const dayKey = t => Math.floor((ms(t) + IST) / DAY);\n  const label = Object.fromEntries(D.faqs.map(f => [f.id, f.label]));\n  Object.assign(label, { OPENING: 'Opening message', SLOT: 'Picked a call time', SILENT: 'Silent (opted out)', NON_TEXT: 'Photo / voice', HANDOFF: 'Needs a person', F10: 'Stop messages' });\n  const nameOf = k => label[k] || k || '?';\n  const newest = (a, b) => ms(b.at) - ms(a.at);\n\n  // ----- numbers -----\n  const people = new Set(D.log.map(r => r.chat));\n  const askedIds = new Set(D.log.filter(r => /^F0\\d$|^HANDOFF$/.test(r.matched)).map(r => r.chat));\n  const bookedIds = new Set(D.bookings.map(r => r.chat));\n  const confirmedIds = new Set(D.bookings.filter(r => r.status === 'confirmed' || r.status === 'done').map(r => r.chat));\n  const pending = D.bookings.filter(r => r.status === 'requested').sort(newest);\n  const upcoming = D.bookings.filter(r => r.status === 'confirmed').sort(newest);\n  const waiting = D.log.filter(r => r.matched === 'HANDOFF' && !r.handled).sort(newest);\n  const answeredByBot = D.log.filter(r => /^F\\d\\d$/.test(r.matched)).length;\n  const questions = D.log.filter(r => /^F\\d\\d$|^HANDOFF$/.test(r.matched)).length;\n  const today = dayKey(D.now);\n  const msgsToday = D.log.filter(r => dayKey(r.at) === today).length;\n  const approved = D.faqs.filter(f => f.status === 'APPROVED').length;\n\n  const kpis = [\n    ['People reached', people.size, msgsToday + ' messages today'],\n    ['Call requests', D.bookings.length, pending.length ? pending.length + ' to confirm' : 'none waiting'],\n    ['Bot answered', questions ? Math.round(answeredByBot / questions * 100) + '%' : '–', answeredByBot + ' of ' + questions + ' questions'],\n    ['Waiting for you', waiting.length + pending.length, waiting.length + (waiting.length === 1 ? ' question' : ' questions') + ' · ' + pending.length + (pending.length === 1 ? ' call' : ' calls')],\n    ['Opted out', D.optedOut, 'said STOP'],\n  ];\n  $('#kpis').innerHTML = kpis.map(([t, v, s], i) => '<div class=\"kpi' + (i === 3 && (waiting.length + pending.length) ? ' hot' : '') + '\"><div class=\"kt\">' + t + '</div><div class=\"kv\">' + esc(v) + '</div><div class=\"ks\">' + esc(s) + '</div></div>').join('');\n\n  const todo = waiting.length + pending.length;\n  $('#banner').innerHTML = todo\n    ? '<span class=\"dot warn\"></span><b>' + todo + ' thing' + (todo > 1 ? 's' : '') + ' need you</b>' + (pending.length ? ' · ' + pending.length + ' call request' + (pending.length > 1 ? 's' : '') + ' to confirm' : '') + (waiting.length ? ' · ' + waiting.length + ' question' + (waiting.length > 1 ? 's' : '') + ' to answer' : '')\n    : '<span class=\"dot good\"></span><b>All clear</b> · nothing is waiting for you';\n  $('#banner').className = 'banner ' + (todo ? 'warn' : 'good');\n\n  // ----- needs you -----\n  const card = (kind, r, body, actions) => '<article class=\"task ' + kind + '\" data-id=\"' + r.id + '\">' +\n    '<div class=\"th\"><span class=\"avatar\">' + esc((r.name || '?').trim().charAt(0).toUpperCase()) + '</span><div><b>' + esc(r.name) + '</b><div class=\"muted\">' + ago(r.at) + '</div></div>' +\n    '<span class=\"tag ' + kind + '\">' + (kind === 'call' ? '📅 Call request' : '💬 Question') + '</span></div>' + body + '<div class=\"acts\">' + actions + '</div></article>';\n  const callCards = pending.map(r => card('call', r,\n    '<p class=\"big\">' + esc(r.slot) + '</p>',\n    '<button class=\"btn primary\" data-act=\"confirm\" data-id=\"' + r.id + '\" data-chat=\"' + esc(r.chat) + '\" data-slot=\"' + esc(r.slot) + '\">Confirm and tell them</button>' +\n    '<button class=\"btn\" data-act=\"cancel\" data-id=\"' + r.id + '\" data-chat=\"' + esc(r.chat) + '\" data-slot=\"' + esc(r.slot) + '\">Can\\'t do this time</button>'));\n  const qCards = waiting.map(r => card('q', r,\n    '<blockquote>' + esc(r.said) + '</blockquote><textarea rows=\"2\" placeholder=\"Type your reply. It goes to them from the bot.\" id=\"reply-' + r.id + '\"></textarea>',\n    '<button class=\"btn primary\" data-act=\"reply\" data-id=\"' + r.id + '\" data-chat=\"' + esc(r.chat) + '\">Send reply</button>' +\n    '<button class=\"btn\" data-act=\"handled\" data-id=\"' + r.id + '\">Mark handled</button>'));\n  $('#todo').innerHTML = (callCards.concat(qCards).join('')) || '<p class=\"empty\">Nothing is waiting. New call requests and questions the bot can\\'t answer show up here.</p>';\n\n  $('#upcoming').innerHTML = upcoming.length\n    ? upcoming.map(r => '<li><span class=\"pill good\">✓ Confirmed</span><b>' + esc(r.name) + '</b><span class=\"muted\">' + esc(r.slot) + '</span><button class=\"btn small\" data-act=\"done\" data-id=\"' + r.id + '\">Call done</button></li>').join('')\n    : '<li class=\"empty\">No confirmed calls yet.</li>';\n\n  // ----- chart: messages per day, last 7 days -----\n  const days = []; for (let k = today - 6; k <= today; k++) days.push(k);\n  const perDay = days.map(k => D.log.filter(r => dayKey(r.at) === k).length);\n  const peoplePerDay = days.map(k => new Set(D.log.filter(r => dayKey(r.at) === k).map(r => r.chat)).size);\n  const dayName = k => { const d = new Date(k * DAY); return W[d.getUTCDay()] + ' ' + d.getUTCDate(); };\n  const max = Math.max(4, ...perDay), top = Math.ceil(max / 4) * 4;\n  const cw = 560, ch = 180, pl = 28, pb = 24, bw = (cw - pl) / 7;\n  let svg = '<svg viewBox=\"0 0 ' + cw + ' ' + ch + '\" role=\"img\" aria-label=\"Messages per day, last 7 days\">';\n  for (let g = 0; g <= 4; g++) { const y = (ch - pb) - (ch - pb - 8) * g / 4; svg += '<line class=\"grid\" x1=\"' + pl + '\" x2=\"' + cw + '\" y1=\"' + y + '\" y2=\"' + y + '\"/><text class=\"axis\" x=\"' + (pl - 6) + '\" y=\"' + (y + 4) + '\" text-anchor=\"end\">' + (top * g / 4) + '</text>'; }\n  days.forEach((k, i) => {\n    const h = (ch - pb - 8) * perDay[i] / top, x = pl + i * bw + bw * 0.22, w = bw * 0.56, y = ch - pb - h;\n    if (perDay[i]) svg += '<path class=\"bar\" d=\"M' + x + ',' + (ch - pb) + 'V' + (y + 4) + 'q0,-4 4,-4h' + (w - 8) + 'q4,0 4,4V' + (ch - pb) + 'Z\"/>';\n    svg += '<text class=\"axis\" x=\"' + (pl + i * bw + bw / 2) + '\" y=\"' + (ch - 6) + '\" text-anchor=\"middle\">' + (k === today ? 'Today' : dayName(k)) + '</text>';\n    svg += '<rect class=\"hit\" x=\"' + (pl + i * bw) + '\" y=\"0\" width=\"' + bw + '\" height=\"' + (ch - pb) + '\" data-tip=\"' + esc((k === today ? 'Today' : dayName(k)) + ': ' + perDay[i] + ' messages from ' + peoplePerDay[i] + (peoplePerDay[i] === 1 ? ' person' : ' people')) + '\"/>';\n  });\n  $('#chart').innerHTML = svg + '</svg>';\n  $('#chartTable').innerHTML = '<tr><th>Day</th><th>Messages</th><th>People</th></tr>' + days.map((k, i) => '<tr><td>' + dayName(k) + '</td><td>' + perDay[i] + '</td><td>' + peoplePerDay[i] + '</td></tr>').join('');\n\n  // ----- funnel -----\n  const steps = [['Started a chat', people.size], ['Asked a question', askedIds.size], ['Requested a call', bookedIds.size], ['Call confirmed', confirmedIds.size]];\n  const f0 = Math.max(1, steps[0][1]);\n  $('#funnel').innerHTML = steps.map(([t, n], i) => '<div class=\"fs\" title=\"' + esc(t + ': ' + n) + '\"><div class=\"fl\"><span>' + t + '</span><b>' + n + '</b></div><div class=\"ft\"><span class=\"f' + i + '\" style=\"width:' + (n ? Math.max(3, n / f0 * 100) : 0) + '%\"></span></div><div class=\"muted fp\">' + (i ? (steps[i - 1][1] ? Math.round(n / steps[i - 1][1] * 100) + '% of previous step' : '–') : 'everyone') + '</div></div>').join('');\n\n  // ----- what people ask -----\n  const counts = {}; D.log.filter(r => /^F\\d\\d$|^HANDOFF$/.test(r.matched)).forEach(r => { counts[r.matched] = (counts[r.matched] || 0) + 1; });\n  const topics = Object.entries(counts).sort((a, b) => b[1] - a[1]);\n  const tmax = topics.length ? topics[0][1] : 1;\n  $('#topics').innerHTML = topics.length ? topics.map(([k, n]) => '<div class=\"tr\" title=\"' + esc(nameOf(k) + ': ' + n) + '\"><span class=\"tl\">' + esc(nameOf(k)) + '</span><span class=\"tb\"><span style=\"width:' + Math.max(3, n / tmax * 100) + '%\"' + (k === 'HANDOFF' ? ' class=\"alt\"' : '') + '></span></span><b>' + n + '</b></div>').join('') : '<p class=\"empty\">No questions yet.</p>';\n\n  // ----- answers status -----\n  $('#answers').innerHTML = '<div class=\"meter\"><span style=\"width:' + (D.faqs.length ? approved / D.faqs.length * 100 : 0) + '%\"></span></div><p class=\"muted\">' + approved + ' of ' + D.faqs.length + ' answers approved by Kaushal ji. Draft answers carry a DRAFT tag in the chat.</p>' +\n    '<ul class=\"alist\">' + D.faqs.slice().sort((a, b) => a.priority - b.priority).map(f => '<li><span>' + esc(f.label || f.id) + '</span>' + (f.status === 'APPROVED' ? '<span class=\"pill good\">✓ Approved</span>' : '<span class=\"pill warn\">✎ Draft</span>') + '</li>').join('') + '</ul>';\n\n  // ----- conversation feed -----\n  const feed = q => {\n    const list = D.log.slice().sort(newest).filter(r => !q || (r.name + ' ' + r.said + ' ' + nameOf(r.matched)).toLowerCase().includes(q)).slice(0, 40);\n    $('#feed').innerHTML = list.length ? list.map(r => '<tr><td class=\"muted nowrap\">' + ago(r.at) + '</td><td><b>' + esc(r.name) + '</b></td><td>' + esc(r.said) + (r.reply ? '<div class=\"sent\">↳ You replied: ' + esc(r.reply) + '</div>' : '') + '</td><td><span class=\"chip' + (r.matched === 'HANDOFF' ? ' alt' : '') + '\">' + esc(nameOf(r.matched)) + '</span>' + (r.replied ? '' : ' <span class=\"muted\">no reply</span>') + '</td></tr>').join('') : '<tr><td colspan=\"4\" class=\"empty\">No messages match.</td></tr>';\n  };\n  feed('');\n  $('#search').addEventListener('input', e => feed(e.target.value.trim().toLowerCase()));\n\n  // ----- tooltip -----\n  const tip = $('#tip');\n  document.addEventListener('mousemove', e => {\n    const t = e.target.closest && e.target.closest('[data-tip]');\n    if (!t) { tip.hidden = true; return; }\n    tip.textContent = t.getAttribute('data-tip'); tip.hidden = false;\n    tip.style.left = Math.min(e.clientX + 12, innerWidth - tip.offsetWidth - 8) + 'px'; tip.style.top = (e.clientY - 34) + 'px';\n  });\n\n  // ----- actions -----\n  const toast = (msg, bad) => { const t = $('#toast'); t.textContent = msg; t.className = 'toast show' + (bad ? ' bad' : ''); setTimeout(() => { t.className = 'toast'; }, 3500); };\n  const ACT = location.pathname.replace(/\\/$/, '') + '-act';\n  const ask = {\n    confirm: b => 'Confirm ' + b.dataset.slot + '? The bot will message them that the call is confirmed.',\n    cancel: b => 'Tell them ' + b.dataset.slot + ' does not work, and ask them to pick another time?',\n    reply: () => 'Send this reply to them through the bot?',\n  };\n  document.addEventListener('click', async e => {\n    const b = e.target.closest('button[data-act]'); if (!b) return;\n    const act = b.dataset.act, body = { action: act, id: Number(b.dataset.id), chat: b.dataset.chat || '', slot: b.dataset.slot || '' };\n    if (act === 'reply') { body.text = ($('#reply-' + body.id).value || '').trim(); if (!body.text) { toast('Type a reply first.', true); return; } }\n    if (ask[act] && !confirm(ask[act](b))) return;\n    b.disabled = true; const old = b.textContent; b.textContent = 'Working…';\n    try {\n      const r = await fetch(ACT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });\n      if (!r.ok) throw new Error('HTTP ' + r.status);\n      toast({ confirm: 'Confirmed. They got a message.', cancel: 'Done. They were asked to pick another time.', done: 'Marked as done.', reply: 'Reply sent.', handled: 'Marked handled.' }[act]);\n      setTimeout(() => location.reload(), 1200);\n    } catch (err) { b.disabled = false; b.textContent = old; toast('That did not work (' + err.message + '). Try again.', true); }\n  });\n  $('#refresh').addEventListener('click', () => location.reload());\n  $('#updated').textContent = 'Updated ' + clock(D.now);\n  setInterval(() => { if (!document.querySelector('textarea:focus') && ![...document.querySelectorAll('textarea')].some(t => t.value)) location.reload(); }, 60000);\n}\n// ---------- end browser part ----------\n\nconst CSS = `\n:root{color-scheme:light;--bg:#f3f3f1;--card:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--muted:#7a7974;--line:#e4e3df;--s1:#2a78d6;--s1soft:#e8f1fc;--s2:#eb6834;\n--good:#0ca30c;--goodsoft:#e7f6e7;--warn:#b77900;--warnbar:#fab219;--warnsoft:#fff5dc;--crit:#d03b3b;--f0:#86b6ef;--f1:#5598e7;--f2:#2a78d6;--f3:#1c5cab;--shadow:0 1px 2px rgba(0,0,0,.04),0 4px 16px rgba(0,0,0,.04)}\n@media (prefers-color-scheme:dark){:root:not([data-theme=\"light\"]){color-scheme:dark;--bg:#111110;--card:#1a1a19;--ink:#f0efec;--ink2:#c3c2b7;--muted:#8f8e86;--line:#2e2e2b;--s1:#3987e5;--s1soft:#1b2a3d;--s2:#d95926;\n--good:#0ca30c;--goodsoft:#16291a;--warn:#fab219;--warnbar:#fab219;--warnsoft:#2e2613;--f0:#184f95;--f1:#256abf;--f2:#3987e5;--f3:#6da7ec;--shadow:none}}\n*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 Inter,system-ui,-apple-system,\"Segoe UI\",sans-serif}\n.wrap{max-width:1180px;margin:0 auto;padding:20px 16px 48px}\nheader{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px}\n.logo{width:40px;height:40px;border-radius:10px;background:var(--s1);color:#fff;display:grid;place-items:center;font-weight:700;font-size:15px;letter-spacing:.5px}\nh1{font-size:20px;margin:0;line-height:1.2}.sub{color:var(--muted);font-size:13px}\n.hr{margin-left:auto;display:flex;gap:8px;align-items:center}.live{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink2);border:1px solid var(--line);border-radius:20px;padding:4px 10px;background:var(--card)}\n.dot{width:8px;height:8px;border-radius:50%;display:inline-block}.dot.good{background:var(--good)}.dot.warn{background:var(--warnbar)}\n.banner{display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:12px;margin-bottom:16px;border:1px solid var(--line);background:var(--card)}\n.banner.warn{background:var(--warnsoft);border-color:transparent}.banner.good{background:var(--goodsoft);border-color:transparent}\n.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px}\n.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow)}\n.kpi.hot{border-color:var(--warnbar)}.kt{color:var(--ink2);font-size:12.5px}.kv{font-size:28px;font-weight:650;letter-spacing:-.5px;font-variant-numeric:tabular-nums;line-height:1.3}.ks{color:var(--muted);font-size:12px}\n.grid2{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;margin-bottom:16px}\n.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;box-shadow:var(--shadow);min-width:0}\n.panel h2{font-size:15px;margin:0 0 2px}.panel .hint{color:var(--muted);font-size:12.5px;margin:0 0 12px}\n.todo{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}\n.task{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--bg)}\n.task.call{border-left:3px solid var(--s1)}.task.q{border-left:3px solid var(--s2)}\n.th{display:flex;align-items:center;gap:10px}.th .tag{margin-left:auto;font-size:11.5px;color:var(--ink2)}\n.avatar{width:32px;height:32px;border-radius:50%;background:var(--s1soft);color:var(--s1);display:grid;place-items:center;font-weight:700}\n.big{font-size:16px;font-weight:600;margin:10px 0 4px}blockquote{margin:10px 0 8px;padding:8px 10px;border-radius:8px;background:var(--card);border:1px solid var(--line)}\ntextarea{width:100%;font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px;resize:vertical}\ntextarea:focus{outline:2px solid var(--s1);outline-offset:0;border-color:transparent}\n.acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}\n.btn{font:inherit;font-size:13px;font-weight:550;padding:7px 12px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}\n.btn:hover{border-color:var(--ink2)}.btn.primary{background:var(--s1);border-color:var(--s1);color:#fff}.btn.primary:hover{filter:brightness(1.08)}\n.btn.small{padding:4px 10px;font-size:12px;margin-left:auto}.btn:disabled{opacity:.6;cursor:wait}\n.upcoming{list-style:none;margin:14px 0 0;padding:0}.upcoming li{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line);flex-wrap:wrap}\n.pill{font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:20px;white-space:nowrap}.pill.good{background:var(--goodsoft);color:var(--good)}.pill.warn{background:var(--warnsoft);color:var(--warn)}\nsvg{width:100%;height:auto;display:block}.grid{stroke:var(--line);stroke-width:1}.axis{fill:var(--muted);font-size:11px}\n.bar{fill:var(--s1)}.hit{fill:transparent}.hit:hover{fill:var(--s1soft);fill-opacity:.5}\ndetails{margin-top:8px;font-size:12.5px;color:var(--ink2)}details table{margin-top:6px}\n.fs{margin-bottom:12px}.fl{display:flex;justify-content:space-between}.fl b{font-variant-numeric:tabular-nums}\n.ft{height:12px;background:var(--bg);border-radius:6px;margin:4px 0 2px;overflow:hidden}.ft span{display:block;height:100%;border-radius:6px}\n.f0{background:var(--f0)}.f1{background:var(--f1)}.f2{background:var(--f2)}.f3{background:var(--f3)}.fp{font-size:11.5px}\n.tr{display:grid;grid-template-columns:150px 1fr 28px;gap:10px;align-items:center;padding:5px 0}.tl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.tb{height:10px;border-radius:5px;background:var(--bg);overflow:hidden}.tb span{display:block;height:100%;border-radius:5px;background:var(--s1)}.tb span.alt{background:var(--s2)}.tr b{text-align:right;font-variant-numeric:tabular-nums}\n.meter{height:8px;border-radius:4px;background:var(--bg);overflow:hidden;margin:6px 0}.meter span{display:block;height:100%;background:var(--good)}\n.alist{list-style:none;margin:6px 0 0;padding:0;columns:2;column-gap:20px}.alist li{display:flex;justify-content:space-between;gap:8px;padding:5px 0;break-inside:avoid;border-bottom:1px solid var(--line)}\n.feedhead{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px}.feedhead input{margin-left:auto;font:inherit;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:inherit;min-width:220px}\n.tablewrap{overflow-x:auto}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-top:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-weight:600;font-size:12px;border-top:0}\n.chip{font-size:12px;padding:2px 8px;border-radius:20px;background:var(--s1soft);color:var(--s1);white-space:nowrap}.chip.alt{background:var(--warnsoft);color:var(--warn)}\n.sent{color:var(--good);font-size:12.5px;margin-top:3px}.muted{color:var(--muted)}.nowrap{white-space:nowrap}.empty{color:var(--muted);margin:4px 0}\n.tip{position:fixed;pointer-events:none;background:var(--ink);color:var(--card);font-size:12px;padding:5px 9px;border-radius:6px;white-space:nowrap;z-index:9}\n.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);opacity:0;transition:.25s;background:var(--ink);color:var(--card);padding:10px 16px;border-radius:10px;font-weight:550}\n.toast.show{opacity:1;transform:translateX(-50%)}.toast.bad{background:var(--crit);color:#fff}\nfooter{color:var(--muted);font-size:12px;margin-top:18px;text-align:center}\n@media (max-width:960px){.grid2{grid-template-columns:1fr}.alist{columns:1}}\n@media (max-width:520px){.hr{margin-left:0}.feedhead input{margin-left:0;width:100%;min-width:0}.tr{grid-template-columns:110px 1fr 24px}}\n`;\n\nconst json = JSON.stringify(data).replace(/</g, '\\\\u003c');\nconst html = `<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"robots\" content=\"noindex\">\n<title>KK bot · Control room</title>\n<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\"><link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;550;600;650;700&display=swap\" rel=\"stylesheet\">\n<style>${CSS}</style></head><body><div class=\"wrap\">\n<header><div class=\"logo\">KK</div><div><h1>Research Assistant · Control room</h1><div class=\"sub\">KK Stock Trading Research · lead assistant bot</div></div>\n<div class=\"hr\"><span class=\"live\"><span class=\"dot good\"></span>Live · Telegram demo</span><span class=\"live\" id=\"updated\"></span><button class=\"btn\" id=\"refresh\">↻ Refresh</button></div></header>\n<div id=\"banner\" class=\"banner\"></div>\n<section class=\"kpis\" id=\"kpis\"></section>\n<div class=\"grid2\">\n<section class=\"panel\"><h2>Needs you</h2><p class=\"hint\">Confirm calls and answer what the bot couldn't. Every button asks before it messages anyone.</p><div class=\"todo\" id=\"todo\"></div>\n<h2 style=\"margin-top:18px\">Confirmed calls</h2><ul class=\"upcoming\" id=\"upcoming\"></ul></section>\n<section class=\"panel\"><h2>Lead funnel</h2><p class=\"hint\">How far people get, from first message to a confirmed call</p><div id=\"funnel\"></div></section>\n</div>\n<div class=\"grid2\">\n<section class=\"panel\"><h2>Messages per day</h2><p class=\"hint\">Last 7 days, India time. Hover a day for details.</p><div id=\"chart\"></div><details><summary>Show as table</summary><table id=\"chartTable\"></table></details></section>\n<section class=\"panel\"><h2>What people ask</h2><p class=\"hint\">Questions by answer. Orange = the bot had to hand it to a person.</p><div id=\"topics\"></div></section>\n</div>\n<section class=\"panel\" style=\"margin-bottom:16px\"><h2>Answers</h2><div id=\"answers\"></div></section>\n<section class=\"panel\"><div class=\"feedhead\"><div><h2>Conversations</h2><p class=\"hint\" style=\"margin:0\">Latest 40 messages and what the bot answered</p></div><input id=\"search\" type=\"search\" placeholder=\"Search name or message\"></div>\n<div class=\"tablewrap\"><table><thead><tr><th>When</th><th>Person</th><th>Said</th><th>Bot answered</th></tr></thead><tbody id=\"feed\"></tbody></table></div></section>\n<footer>Private page. Don't share the link. Names and messages come from the bot's tables in n8n.</footer>\n</div><div class=\"tip\" id=\"tip\" hidden></div><div class=\"toast\" id=\"toast\"></div>\n<script id=\"data\" type=\"application/json\">${json}</script>\n<script>(${client.toString()})();</script>\n</body></html>`;\n\nreturn [{ json: { html } }];\n"
+  }
+ },
+ {
+  "type": "addNode",
+  "node": {
+   "name": "Do action",
+   "type": "n8n-nodes-base.webhook",
+   "typeVersion": 2.2,
+   "position": [
+    0,
+    620
+   ],
+   "parameters": {
+    "httpMethod": "POST",
+    "path": "kk-dash-SECRET-act",
+    "responseMode": "responseNode",
+    "options": {
+     "ignoreBots": true
+    }
+   }
+  }
+ },
+ {
+  "type": "addNode",
+  "node": {
+   "name": "Check action",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    220,
+    620
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "// Dashboard actions (n8n Code node \"Check action\", mode: run once for all items).\n// Input: POST body from a dashboard button. Output: one item saying which table row to change,\n// and whether the bot should message the lead (and what).\nconst b = $input.first().json.body || {};\nconst action = String(b.action || '');\nconst id = Number(b.id);\nif (!Number.isInteger(id) || id < 1) throw new Error('Missing row id');\nconst esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst DEMO = '\\n\\n<i>[DEMO: Telegram prototype]</i>';\nconst out = { table: '', id, status: '', handled: false, reply: '', send: false, chatId: String(b.chat || ''), text: '' };\n\nif (action === 'confirm') {\n  Object.assign(out, { table: 'booking', status: 'confirmed', send: true,\n    text: '✅ Your call is confirmed: <b>' + esc(b.slot) + '</b>.\\nKaushal ji\\'s team will call you at that time.' + DEMO });\n} else if (action === 'cancel') {\n  Object.assign(out, { table: 'booking', status: 'cancelled', send: true,\n    text: 'Sorry, <b>' + esc(b.slot) + '</b> doesn\\'t work for us after all. Please tap <b>Book a call</b> to pick another time.' + DEMO });\n} else if (action === 'done') {\n  Object.assign(out, { table: 'booking', status: 'done' });\n} else if (action === 'reply') {\n  const text = String(b.text || '').trim().slice(0, 1000);\n  if (!text) throw new Error('Empty reply');\n  Object.assign(out, { table: 'log', handled: true, reply: text, send: true, text: esc(text) });\n} else if (action === 'handled') {\n  Object.assign(out, { table: 'log', handled: true });\n} else {\n  throw new Error('Unknown action');\n}\nif (out.send && !/^-?\\d+$/.test(out.chatId)) throw new Error('Bad chat id');\nreturn [{ json: out }];\n"
+   }
+  }
+ },
+ {
+  "type": "addNode",
+  "node": {
+   "name": "Message the lead?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    440,
+    620
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "strict",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "json.send}}true",
+       "leftValue": "={{ $json.send }}",
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       },
+       "rightValue": ""
+      }
+     ],
+     "combinator": "and"
+    },
+    "looseTypeValidation": true,
+    "options": {}
+   }
+  }
+ },
+ {
+  "type": "addNode",
+  "node": {
+   "name": "Message the lead",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    660,
+    540
+   ],
+   "credentials": {
+    "telegramApi": {
+     "id": "LGD07b5EZDSenFgD",
+     "name": "Telegram account"
+    }
+   },
+   "parameters": {
+    "resource": "message",
+    "operation": "sendMessage",
+    "chatId": "={{ $('Check action').first().json.chatId }}",
+    "text": "={{ $('Check action').first().json.text }}",
+    "additionalFields": {
+     "appendAttribution": false,
+     "parse_mode": "HTML"
+    }
+   }
+  }
+ },
+ {
+  "type": "addNode",
+  "node": {
+   "name": "Which table?",
+   "type": "n8n-nodes-base.switch",
+   "typeVersion": 3.2,
+   "position": [
+    880,
+    620
+   ],
+   "parameters": {
+    "rules": {
+     "values": [
+      {
+       "conditions": {
+        "options": {
+         "caseSensitive": true,
+         "leftValue": "",
+         "typeValidation": "strict",
+         "version": 2
+        },
+        "conditions": [
+         {
+          "id": "son.table}}equals",
+          "leftValue": "={{ $('Check action').first().json.table }}",
+          "operator": {
+           "type": "string",
+           "operation": "equals"
+          },
+          "rightValue": "booking"
+         }
+        ],
+        "combinator": "and"
+       },
+       "renameOutput": true,
+       "outputKey": "booking"
+      },
+      {
+       "conditions": {
+        "options": {
+         "caseSensitive": true,
+         "leftValue": "",
+         "typeValidation": "strict",
+         "version": 2
+        },
+        "conditions": [
+         {
+          "id": "son.table}}equals",
+          "leftValue": "={{ $('Check action').first().json.table }}",
+          "operator": {
+           "type": "string",
+           "operation": "equals"
+          },
+          "rightValue": "log"
+         }
+        ],
+        "combinator": "and"
+       },
+       "renameOutput": true,
+       "outputKey": "chat log"
+      }
+     ]
+    },
+    "options": {}
+   }
+  }
+ },
+ {
+  "type": "addNode",
+  "node": {
+   "name": "Update booking",
+   "type": "n8n-nodes-base.dataTable",
+   "typeVersion": 1.1,
+   "position": [
+    1100,
+    540
+   ],
+   "parameters": {
+    "resource": "row",
+    "operation": "update",
+    "dataTableId": {
+     "__rl": true,
+     "mode": "id",
+     "value": "H1fbHCP3WEFQuk4i"
+    },
+    "matchType": "allConditions",
+    "filters": {
+     "conditions": [
+      {
+       "keyName": "id",
+       "condition": "eq",
+       "keyValue": "={{ $('Check action').first().json.id }}"
+      }
+     ]
+    },
+    "columns": {
+     "mappingMode": "defineBelow",
+     "value": {
+      "status": "={{ $('Check action').first().json.status }}"
+     },
+     "matchingColumns": [],
+     "schema": [
+      {
+       "id": "status",
+       "displayName": "status",
+       "required": false,
+       "defaultMatch": false,
+       "display": true,
+       "type": "string",
+       "canBeUsedToMatch": true,
+       "readOnly": false,
+       "removed": false
+      }
+     ]
+    },
+    "options": {}
+   }
+  }
+ },
+ {
+  "type": "addNode",
+  "node": {
+   "name": "Update chat log",
+   "type": "n8n-nodes-base.dataTable",
+   "typeVersion": 1.1,
+   "position": [
+    1100,
+    700
+   ],
+   "parameters": {
+    "resource": "row",
+    "operation": "update",
+    "dataTableId": {
+     "__rl": true,
+     "mode": "id",
+     "value": "KzbyZe0KwgGLxB6W"
+    },
+    "matchType": "allConditions",
+    "filters": {
+     "conditions": [
+      {
+       "keyName": "id",
+       "condition": "eq",
+       "keyValue": "={{ $('Check action').first().json.id }}"
+      }
+     ]
+    },
+    "columns": {
+     "mappingMode": "defineBelow",
+     "value": {
+      "handled": "={{ $('Check action').first().json.handled }}",
+      "team_reply": "={{ $('Check action').first().json.reply || null }}"
+     },
+     "matchingColumns": [],
+     "schema": [
+      {
+       "id": "handled",
+       "displayName": "handled",
+       "required": false,
+       "defaultMatch": false,
+       "display": true,
+       "type": "boolean",
+       "canBeUsedToMatch": true,
+       "readOnly": false,
+       "removed": false
+      },
+      {
+       "id": "team_reply",
+       "displayName": "team_reply",
+       "required": false,
+       "defaultMatch": false,
+       "display": true,
+       "type": "string",
+       "canBeUsedToMatch": true,
+       "readOnly": false,
+       "removed": false
+      }
+     ]
+    },
+    "options": {}
+   }
+  }
+ },
+ {
+  "type": "addNode",
+  "node": {
+   "name": "Action done",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "typeVersion": 1.5,
+   "position": [
+    1320,
+    620
+   ],
+   "parameters": {
+    "respondWith": "json",
+    "responseBody": "={ \"ok\": true }",
+    "options": {}
+   }
+  }
+ },
+ {
+  "type": "addConnection",
+  "source": "Do action",
+  "target": "Check action"
+ },
+ {
+  "type": "addConnection",
+  "source": "Check action",
+  "target": "Message the lead?"
+ },
+ {
+  "type": "addConnection",
+  "source": "Message the lead?",
+  "target": "Message the lead",
+  "sourceIndex": 0
+ },
+ {
+  "type": "addConnection",
+  "source": "Message the lead?",
+  "target": "Which table?",
+  "sourceIndex": 1
+ },
+ {
+  "type": "addConnection",
+  "source": "Message the lead",
+  "target": "Which table?"
+ },
+ {
+  "type": "addConnection",
+  "source": "Which table?",
+  "target": "Update booking",
+  "sourceIndex": 0
+ },
+ {
+  "type": "addConnection",
+  "source": "Which table?",
+  "target": "Update chat log",
+  "sourceIndex": 1
+ },
+ {
+  "type": "addConnection",
+  "source": "Update booking",
+  "target": "Action done"
+ },
+ {
+  "type": "addConnection",
+  "source": "Update chat log",
+  "target": "Action done"
+ },
+ {
+  "type": "setWorkflowMetadata",
+  "name": "KK bot dashboard (control room)"
+ },
+ {
+  "type": "setNodeGroups",
+  "nodeGroups": [
+   {
+    "name": "A · Show the page",
+    "nodeNames": [
+     "Open dashboard",
+     "Read chat log",
+     "Read bookings",
+     "Read contacts",
+     "Read answers",
+     "Build page",
+     "Show page"
+    ]
+   },
+   {
+    "name": "B · Button actions",
+    "nodeNames": [
+     "Do action",
+     "Check action",
+     "Message the lead?",
+     "Message the lead",
+     "Which table?",
+     "Update booking",
+     "Update chat log",
+     "Action done"
+    ]
+   }
+  ]
+ }
+]
