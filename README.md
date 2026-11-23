@@ -23,8 +23,8 @@ Status: **Telegram prototype** (zero cost: Telegram + n8n + Google Sheet, button
 | Slice | What | Status |
 |---|---|---|
 | T0 | Telegram echo bot in n8n | ✅ works (switch to Active) |
-| T1 | `/start` → opening message + 6 buttons; FAQ answers built from `knowledge/faqs.csv` (`scripts/build_t1.py`; Sheet later) | live in n8n (`pcJZgD9Phn5ipV0T`), to test (`docs/t1-setup.md`) |
-| T2 | Keyword matching for typed text, advice refusal, STOP, hand-off alert to Manish | not started |
+| T1 | `/start` → opening message + 6 buttons; FAQ answers built from `knowledge/faqs.csv` (`scripts/build_t1.py`; Sheet later) | ✅ live and tested by Manish, 23 Nov (n8n `pcJZgD9Phn5ipV0T`) |
+| T2 | Keyword matching for typed text, advice refusal, STOP, hand-off alert to Manish; answers move to a Google Sheet | next |
 | T3 | Book a call (slots) + log every chat to a Sheet | not started |
 | T4 | Demo to Kaushal: walk through the flow, collect his answers for the `[ ]` gaps | not started |
 | Later | WhatsApp adapter, Claude intent labels, guardrail, pilot (backend and cost decided after the demo) | parked |
