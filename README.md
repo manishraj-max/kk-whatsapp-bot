@@ -2,7 +2,7 @@
 
 Private. WhatsApp assistant for a SEBI-registered research analyst's business: answers FAQs with **pre-approved text only**, books meetings, and hands anything else to a human. Built with n8n (workflow), Claude (intent labels only) and a plain-code guardrail.
 
-Status: **slice 0** (Telegram echo bot, practice for the webhook flow). Nothing talks to real leads yet.
+Status: **Telegram prototype** (zero cost: Telegram + n8n + Google Sheet, buttons and keyword matching, no Claude yet). Nothing talks to real leads. All answers are DRAFT until Kaushal and compliance approve.
 
 ## Rules
 - The bot picks approved answers; it never writes advice, names stocks or promises returns.
@@ -16,15 +16,17 @@ Status: **slice 0** (Telegram echo bot, practice for the webhook flow). Nothing 
 | `knowledge/` | approved answers (id, topic, text, approved_on) |
 | `guardrail/` | blocked patterns + the test set |
 | `prompts/` | the intent-labelling prompt |
-| `docs/` | architecture and decisions |
+| `docs/` | architecture, decisions, setup steps |
+| `scripts/` | build the workflows from `knowledge/` |
 
-## Build slices
+## Build slices (Telegram prototype first, 23 Nov)
 | Slice | What | Status |
 |---|---|---|
-| 0 | Telegram echo bot in n8n | in progress |
-| 1 | Echo on a WhatsApp test number | not started |
-| 2 | Intent labels + approved answers + guardrail | not started |
-| 3 | STOP, hand-off, rep alert | not started |
-| 4 | Booking + reminders | not started |
-| 5 | Logs + weekly report | not started |
-| 6–7 | Internal test, then a consented pilot | not started |
+| T0 | Telegram echo bot in n8n | ✅ works (switch to Active) |
+| T1 | `/start` → opening message + 6 buttons; FAQ answers built from `knowledge/faqs.csv` (`scripts/build_t1.py`; Sheet later) | built, to import + test (`docs/t1-setup.md`) |
+| T2 | Keyword matching for typed text, advice refusal, STOP, hand-off alert to Manish | not started |
+| T3 | Book a call (slots) + log every chat to a Sheet | not started |
+| T4 | Demo to Kaushal: walk through the flow, collect his answers for the `[ ]` gaps | not started |
+| Later | WhatsApp adapter, Claude intent labels, guardrail, pilot (backend and cost decided after the demo) | parked |
+
+Knowledge: `knowledge/opening_message.md` (Version A, finalised 19 Nov) · `knowledge/faqs.csv` (10 FAQs + hand-off).
