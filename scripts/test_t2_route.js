@@ -31,6 +31,7 @@ const cases = [
   ['should I buy Tata', () => msg('Should I buy Tata Motors?'), r => r.matched === 'F08'],
   ['nifty tomorrow', () => msg('where will nifty go tomorrow'), r => r.matched === 'F08'],
   ['guaranteed profit', () => msg('is profit guaranteed?'), r => r.matched === 'F06'],
+  ['typo: gauranteed', () => msg('is profit gauranteed'), r => r.matched === 'F06'],
   ['sebi check', () => msg('are you sebi registered or scam'), r => r.matched === 'F01'],
   ['bot?', () => msg('am I talking to a bot'), r => r.matched === 'F02'],
   ['trade for me', () => msg('can you trade for me'), r => r.matched === 'F04'],
