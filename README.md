@@ -26,6 +26,7 @@ Status: **Telegram prototype** (zero cost: Telegram + n8n + Google Sheet, button
 | T1 | `/start` → opening message + 6 buttons; FAQ answers built from `knowledge/faqs.csv` (`scripts/build_t1.py`; Sheet later) | ✅ live and tested by Manish, 23 Nov (n8n `pcJZgD9Phn5ipV0T`) |
 | T2 | Keyword matching for typed text, advice refusal, STOP memory, hand-off alert to Manish; answers in n8n Data table `kk_faqs` (`docs/t2-setup.md`) | ✅ live and tested by Manish, 23 Nov |
 | T3 | Book a call (demo slots → `kk_bookings`) + log every message (`kk_chat_log`) (`docs/t3-setup.md`) | live 23 Nov, to test |
+| Dash | Read-only dashboard page over the 4 tables (`docs/dashboard.md`) | live 23 Nov |
 | T4 | Demo to Kaushal: walk through the flow, collect his answers for the `[ ]` gaps | next |
 | Later | WhatsApp adapter, Claude intent labels, guardrail, pilot (backend and cost decided after the demo) | parked |
 
