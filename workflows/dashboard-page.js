@@ -146,8 +146,15 @@ function client() {
     const b = e.target.closest('button[data-act]'); if (!b) return;
     const act = b.dataset.act, body = { action: act, id: Number(b.dataset.id), chat: b.dataset.chat || '', slot: b.dataset.slot || '' };
     if (act === 'reply') { body.text = ($('#reply-' + body.id).value || '').trim(); if (!body.text) { toast('Type a reply first.', true); return; } }
-    if (ask[act] && !confirm(ask[act](b))) return;
-    b.disabled = true; const old = b.textContent; b.textContent = 'Working…';
+    // Two-tap confirm inside the page (browser pop-ups are blocked in in-app browsers, so no confirm()).
+    if (ask[act] && b.dataset.armed !== '1') {
+      b.dataset.armed = '1'; b.dataset.label = b.textContent; b.textContent = 'Tap again to send'; b.classList.add('armed');
+      toast(ask[act](b) + ' Tap the button again to go ahead.');
+      setTimeout(() => { if (b.dataset.armed === '1') { b.dataset.armed = ''; b.textContent = b.dataset.label; b.classList.remove('armed'); } }, 5000);
+      return;
+    }
+    b.dataset.armed = '';
+    b.disabled = true; const old = b.dataset.label || b.textContent; b.textContent = 'Working…';
     try {
       const r = await fetch(ACT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -191,7 +198,7 @@ textarea{width:100%;font:inherit;color:inherit;background:var(--card);border:1px
 textarea:focus{outline:2px solid var(--s1);outline-offset:0;border-color:transparent}
 .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 .btn{font:inherit;font-size:13px;font-weight:550;padding:7px 12px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
-.btn:hover{border-color:var(--ink2)}.btn.primary{background:var(--s1);border-color:var(--s1);color:#fff}.btn.primary:hover{filter:brightness(1.08)}
+.btn:hover{border-color:var(--ink2)}.btn.primary{background:var(--s1);border-color:var(--s1);color:#fff}.btn.primary:hover{filter:brightness(1.08)}.btn.armed{background:var(--warnbar);border-color:var(--warnbar);color:#1a1a1a;font-weight:600}
 .btn.small{padding:4px 10px;font-size:12px;margin-left:auto}.btn:disabled{opacity:.6;cursor:wait}
 .upcoming{list-style:none;margin:14px 0 0;padding:0}.upcoming li{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line);flex-wrap:wrap}
 .pill{font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:20px;white-space:nowrap}.pill.good{background:var(--goodsoft);color:var(--good)}.pill.warn{background:var(--warnsoft);color:var(--warn)}
@@ -228,7 +235,7 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <div id="banner" class="banner"></div>
 <section class="kpis" id="kpis"></section>
 <div class="grid2">
-<section class="panel"><h2>Needs you</h2><p class="hint">Confirm calls and answer what the bot couldn't. Every button asks before it messages anyone.</p><div class="todo" id="todo"></div>
+<section class="panel"><h2>Needs you</h2><p class="hint">Confirm calls and answer what the bot couldn't. Buttons that message someone need two taps.</p><div class="todo" id="todo"></div>
 <h2 style="margin-top:18px">Confirmed calls</h2><ul class="upcoming" id="upcoming"></ul></section>
 <section class="panel"><h2>Lead funnel</h2><p class="hint">How far people get, from first message to a confirmed call</p><div id="funnel"></div></section>
 </div>

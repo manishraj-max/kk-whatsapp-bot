@@ -34,7 +34,7 @@ The page is the same for any screen (phone works too), follows light/dark mode, 
 | Send reply | chat log row → `handled`, `team_reply` saved | your text |
 | Mark handled | chat log row → `handled` | none |
 
-Every button that messages someone asks "are you sure?" first. Messages carry a `[DEMO: Telegram prototype]` tag while this is a demo.
+Every button that messages someone needs two taps: the first turns it yellow ("Tap again to send") and says what will happen, the second sends. (A browser pop-up was used before, but in-app browsers block pop-ups, so clicks silently did nothing; fixed 24 Nov.) Messages carry a `[DEMO: Telegram prototype]` tag while this is a demo.
 
 New columns for this: `kk_chat_log.handled` (yes/no) and `kk_chat_log.team_reply` (text).
 
