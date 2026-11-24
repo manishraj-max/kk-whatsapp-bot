@@ -135,7 +135,7 @@ function client() {
   });
 
   // ----- actions -----
-  const toast = (msg, bad) => { const t = $('#toast'); t.textContent = msg; t.className = 'toast show' + (bad ? ' bad' : ''); setTimeout(() => { t.className = 'toast'; }, 3500); };
+  const toast = (msg, bad) => { const t = $('#toast'); t.textContent = msg; t.className = 'toast show' + (bad ? ' bad' : ''); clearTimeout(t._h); t._h = setTimeout(() => { t.className = 'toast'; }, 6000); };
   const ACT = location.pathname.replace(/\/$/, '') + '-act';
   const ask = {
     confirm: b => 'Confirm ' + b.dataset.slot + '? The bot will message them that the call is confirmed.',
@@ -149,8 +149,8 @@ function client() {
     // Two-tap confirm inside the page (browser pop-ups are blocked in in-app browsers, so no confirm()).
     if (ask[act] && b.dataset.armed !== '1') {
       b.dataset.armed = '1'; b.dataset.label = b.textContent; b.textContent = 'Tap again to send'; b.classList.add('armed');
-      toast(ask[act](b) + ' Tap the button again to go ahead.');
-      setTimeout(() => { if (b.dataset.armed === '1') { b.dataset.armed = ''; b.textContent = b.dataset.label; b.classList.remove('armed'); } }, 5000);
+      // Stays armed until tapped again (no time limit); the auto-refresh waits while anything is armed.
+      toast(ask[act](b) + ' Tap the yellow button to send.');
       return;
     }
     b.dataset.armed = '';
@@ -164,7 +164,7 @@ function client() {
   });
   $('#refresh').addEventListener('click', () => location.reload());
   $('#updated').textContent = 'Updated ' + clock(D.now);
-  setInterval(() => { if (!document.querySelector('textarea:focus') && ![...document.querySelectorAll('textarea')].some(t => t.value)) location.reload(); }, 60000);
+  setInterval(() => { if (!document.querySelector('.btn.armed') && !document.querySelector('textarea:focus') && ![...document.querySelectorAll('textarea')].some(t => t.value)) location.reload(); }, 60000);
 }
 // ---------- end browser part ----------
 
